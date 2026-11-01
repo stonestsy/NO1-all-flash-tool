@@ -1,0 +1,9 @@
+﻿cargo.exe : [1m[92m    Finished[0m ]8;;https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles\`d
+ev` profile [unoptimized + debuginfo]]8;;\ target(s) in 0.03s
+所在位置 行:15 字符: 1364
++ ... cargo.exe"; & $cargo build --manifest-path "$proj\Cargo.toml" 2>&1 |  ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1m[92m    Fi...get(s) in 0.03s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+rustc 1.99.1 (58cf8f9c3 2026-10-13)

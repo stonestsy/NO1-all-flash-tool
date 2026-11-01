@@ -1,0 +1,10 @@
+[package]
+name = "aft-env-hide"
+version = "5.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

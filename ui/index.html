@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>All-FlashTool</title>
+    <link
+      rel="stylesheet"
+      href="https://font.sec.miui.com/font/css?family=MiSans:400:Chinese_Simplify,Latin&display=swap"
+    />
+    <script type="module" crossorigin src="/assets/index-DknuZDVu.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-QyZyyXao.css">
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      // 去除登录校验：启动后自动完成本地登录，直接进入主界面。
+      (function () {
+        let done = false;
+        const timer = setInterval(() => {
+          if (done) {
+            clearInterval(timer);
+            return;
+          }
+          const u = document.querySelector('#lg-user');
+          const p = document.querySelector('#lg-pass');
+          const btn = document.querySelector('#lg-login');
+          const agree = document.querySelector('#lg-agree');
+          if (!u || !p || !btn) {
+            return;
+          }
+          u.value = 'local';
+          u.dispatchEvent(new Event('input', { bubbles: true }));
+          p.value = 'local';
+          p.dispatchEvent(new Event('input', { bubbles: true }));
+          if (agree && !agree.checked) {
+            agree.checked = true;
+            agree.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+          if (!btn.disabled) {
+            done = true;
+            clearInterval(timer);
+            btn.click();
+          }
+        }, 300);
+        setTimeout(() => clearInterval(timer), 30000);
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,8 @@
+# All-FlashTool 逆向重建工作区（可编译骨架）
+#
+# 说明：crate 名称、目录、源文件路径恢复自脱壳后的二进制（panic 路径字符串）。
+# 所有 crate 均为 std-only 占位实现，`cargo build` 可编译；
+# 真实逻辑请参考 ../All-FlashTool-unpacked/ 与反编译结果补全。
+[workspace]
+resolver = "2"
+members = ["crates/*"]

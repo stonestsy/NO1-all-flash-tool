@@ -1,0 +1,19 @@
+# Tauri 2 桌面壳（独立工作区，避免与 std-only 骨架一起编译）
+#
+# 构建前置：Rust + Visual Studio C++ Build Tools + WebView2 Runtime
+# 前端产物由 ../ui 提供（已接入原始前端资源）。
+[package]
+name = "aft-app"
+version = "5.1.0"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace]

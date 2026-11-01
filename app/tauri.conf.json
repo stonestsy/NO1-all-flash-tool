@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "All-FlashTool",
+  "version": "5.1.0",
+  "identifier": "com.allflashtool.desktop",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "windows": [
+      { "label": "main", "title": "All-FlashTool", "width": 1280, "height": 800, "resizable": true }
+    ],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false, "targets": "all", "icon": [] }
+}

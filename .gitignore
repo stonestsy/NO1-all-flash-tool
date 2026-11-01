@@ -1,0 +1,11 @@
+# Rust/Cargo 构建产物
+target/
+**/*.rs.bk
+
+# 前端
+ui/node_modules/
+ui/dist/
+
+# 编辑器
+.vscode/
+.idea/
