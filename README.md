@@ -1,35 +1,11 @@
 # All-FlashTool v5.1.0 — 逆向重建工程
 
-基于前端反混淆代码与公开协议，对 `All-FlashTool v5.1.0`（Rust + Tauri 2 + WebView2）进行的功能级重建。
-**310 个 Tauri 命令已全部实现并注册**，可编译、可运行，登录后进入完整主界面。
+对 `All-FlashTool v5.1.0`（Rust + Tauri 2 + WebView2）的功能级重建，可编译、可运行。
+实现依据为反混淆后的前端代码与公开协议/格式规范，不包含原始闭源代码。
 
-> 原样本 `.text` 被 VMP 壳清零保护，无法直接反编译原函数。本工程的实现依据是
-> 反混淆后的前端代码（完全可读）与各协议/文件格式的公开规范，不含原始闭源代码。
+> 原样本 `.text` 被 VMP 壳清零保护，无法直接反编译原函数，因此工程为行为级重建而非二进制还原。
 
-## 功能现状
-
-| 领域 | 实现 |
-|---|---|
-| 启动 / 登录 | 本地模式，已去除登录校验，启动自动进入主界面 |
-| 环境部署 | 真实下载并解压 Google platform-tools（adb / fastboot 可用） |
-| ADB | 设备枚举、getprop、分区 dd、文件推拉、安装、投屏按键 |
-| Fastboot | getvar / flash / erase / 槽位 / 重启，bat·rawprogram·scatter 脚本解析 |
-| 文件格式 | payload.bin（手写 protobuf）、boot.img、GPT、Android sparse、ext4 |
-| 云盘 | 123 云盘完整 API（登录 / 列表 / 下载 / 分享 / 转存） |
-| 下载 | 下载任务管理器、应用商店下载安装、更新包 SHA256 校验 |
-| 壁纸 / 背景 | 本地壁纸管理、背景偏好持久化 |
-| 系统 | 剪贴板、输入法、串口枚举、网络预检、IP 归属地（多源 + 缓存） |
-| 小米解锁 | fastboot 真实解锁 / 回锁 |
-
-### 明确的边界（返回 `Err`，不伪造成功）
-
-- **EDL Sahara / Firehose、MTK BROM** 串口协议栈（本地 XML/scatter 解析已实现）
-- **专有修补算法**：NV / OCDT / VAB 签名 / OFP AES 解密等
-- **私有服务器协议**：账号鉴权、云商店目录、ROM 索引中转、小米账号登录
-
-这些能力的本地可解析部分均已实现；协议栈可在对应模块内继续补全。
-
-## 构建
+## 快速开始
 
 前置环境：
 
@@ -39,37 +15,64 @@
 
 ```bash
 cd app
-cargo build            # debug
-cargo build --release  # release（优化，无控制台窗口）
+cargo build --release   # 产物 app/target/release/aft-app.exe
+cargo test              # 运行回归测试
 ```
 
-产物：`app/target/release/aft-app.exe`
+首次启动会自动下载并解压 Google platform-tools，随后进入主界面。
+
+## 功能现状
+
+| 模块 | 状态 |
+|---|---|
+| 启动 / 登录 | 本地模式，免登录直接进入主界面 |
+| 环境部署 | 真实下载并解压 platform-tools（adb / fastboot 可用） |
+| ADB | 设备枚举、getprop、分区读写/擦除、文件推拉、APK 安装 |
+| Fastboot | getvar / flash / erase / 槽位 / 重启，脚本解析与批量刷写 |
+| 镜像格式 | payload 元数据、boot.img、GPT、Android sparse、ext4 解析 |
+| 123 云盘 | 登录、列表、下载、分享、转存 |
+| 下载 | 任务队列（暂停 / 取消）、商店下载安装、更新包校验 |
+| 系统 | 剪贴板、输入法、串口枚举、网络预检、IP 归属地 |
+| 解锁 | 小米 fastboot 解锁 / 回锁 |
+
+### 近期安全与可靠性修复
+
+- **退出码传播**：adb / fastboot 等子进程非零退出码现在作为失败返回，不再误报成功。
+- **真实取消**：`fastboot_cancel` 会终止当前刷写进程，并停止后续批量任务。
+- **分区名校验**：ADB 擦除、读回、写入、备份前校验分区名，阻断设备端 root shell 注入。
+- **回归测试**：新增退出码、进程取消、分区名校验 3 个测试。
+
+### 已知限制
+
+以下能力会返回明确错误或空结果，不伪造成功：
+
+- **协议栈**：EDL Sahara / Firehose、MTK BROM（本地 XML / scatter 解析已实现）。
+- **专有算法**：NV / OCDT / VAB 签名 / OFP 解密、payload 解包、super 合并等。
+- **私有服务**：账号鉴权、云商店目录、小米账号登录。
+- **下载器**：当前为单连接，线程数设置仅记录；暂停后恢复会重新下载。
+- **商店**：目录为空，等待云端接入。
 
 ## 项目结构
 
 ```
 All-FlashTool-project/
-├─ Cargo.toml / crates/   # 恢复出的 std-only crate 骨架（27 个）
+├─ Cargo.toml / crates/   # 从二进制恢复的 std-only crate 骨架（27 个）
 ├─ app/                   # Tauri 2 桌面壳（独立工作区）
-│  ├─ src/main.rs         # 入口：注册全部 310 命令
-│  └─ src/commands.rs     # 命令聚合 + 启动链路
-│  └─ src/commands/       # 22 个功能模块
-│     ├─ util.rs          # WinHTTP / 子进程 / 文件对话框 / 地区缓存
-│     ├─ sys.rs creds.rs adb.rs fastboot.rs pack.rs
-│     ├─ rom.rs update.rs fastboot_script.rs qcn.rs
-│     ├─ formats.rs lib_backup.rs wallpaper.rs downloads.rs
-│     ├─ store.rs misc.rs root.rs xiaomi_unlock.rs
-│     └─ pan123.rs edl.rs mtk.rs utility.rs
-├─ ui/                    # 原始前端资源（已接入）+ 自动登录注入
-└─ docs/                  # 逆向分析报告（rdata / 前端 / 命令签名）
+│  ├─ src/main.rs         # 入口：注册 310 个命令
+│  ├─ src/commands.rs     # 命令聚合 + 启动链路
+│  └─ src/commands/       # 22 个功能模块（util / adb / fastboot / formats / ...）
+├─ ui/                    # 原始前端资源（已接入）
+└─ docs/                  # 逆向分析报告（rdata / 前端 / 命令签名等）
 ```
 
-## 运行
+## 文档
 
-直接运行 `aft-app.exe`。首次启动会自动部署运行环境（下载 platform-tools），
-随后进入主界面。设备相关功能需连接 Android 设备（ADB / Fastboot）。
+- [命令签名](docs/command_signatures.md)
+- [前端恢复](docs/frontend_recovery.md)
+- [.rdata 恢复](docs/rdata_recovery.md)
+- [文件格式](docs/file_formats.md)
+- [crate 映射](docs/crate_map.md)
 
 ## 免责声明
 
-本工程仅用于安全研究与互操作分析。不包含原始闭源实现；
-涉及设备写入的功能（刷写、擦除、解锁）具有真实风险，请仅在自有或已获授权的设备上使用。
+本工程仅用于安全研究与互操作分析。涉及设备写入的功能（刷写、擦除、解锁）具有真实风险，请仅在自有或已获授权的设备上使用。
