@@ -3,6 +3,7 @@
 
 use super::util::*;
 use serde_json::{json, Value};
+use std::sync::atomic::Ordering;
 
 fn opt_str(v: &Option<Value>) -> Option<String> {
     v.as_ref().and_then(|x| x.as_str()).map(|s| s.to_string())
@@ -69,7 +70,14 @@ pub fn xiaomi_unlock_bl() -> Result<Value, String> {
     }
     let exe = fastboot_path()?;
     let serial = &serials[0];
-    let out = run_tool_str(&exe, &["-s", serial, "flashing", "unlock"])?;
+    let args = vec![
+        "-s".to_string(),
+        serial.clone(),
+        "flashing".to_string(),
+        "unlock".to_string(),
+    ];
+    super::fastboot::FB_CANCEL.store(false, Ordering::SeqCst);
+    let out = run_tool_cancellable(&exe, &args, &super::fastboot::FB_CANCEL)?;
     Ok(json!({"ok": true, "serial": serial, "output": out}))
 }
 

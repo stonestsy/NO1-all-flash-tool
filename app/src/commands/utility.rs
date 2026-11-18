@@ -179,7 +179,8 @@ pub fn utility_android_relock_bl() -> Result<Value, String> {
         "flashing".to_string(),
         "lock".to_string(),
     ];
-    let output = run_tool(&exe, &args)?;
+    super::fastboot::FB_CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+    let output = run_tool_cancellable(&exe, &args, &super::fastboot::FB_CANCEL)?;
     let lower = output.to_ascii_lowercase();
     if lower.contains("failed") || lower.contains("error:") || lower.contains("not allowed") {
         return Err(format!("Fastboot 回锁失败: {}", output.trim()));

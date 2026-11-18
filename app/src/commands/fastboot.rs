@@ -8,9 +8,10 @@ fn opt_str(v: &Option<Value>) -> Option<String> {
     v.as_ref().and_then(|x| x.as_str()).map(|s| s.to_string())
 }
 
-static FB_CANCEL: AtomicBool = AtomicBool::new(false);
+pub(crate) static FB_CANCEL: AtomicBool = AtomicBool::new(false);
 
 fn fastboot(serial: Option<&str>, args: &[&str]) -> Result<String, String> {
+    FB_CANCEL.store(false, Ordering::SeqCst);
     let exe = fastboot_path()?;
     let mut full: Vec<String> = Vec::new();
     if let Some(s) = serial {
@@ -18,7 +19,7 @@ fn fastboot(serial: Option<&str>, args: &[&str]) -> Result<String, String> {
         full.push(s.to_string());
     }
     full.extend(args.iter().map(|a| a.to_string()));
-    run_tool(&exe, &full)
+    run_tool_cancellable(&exe, &full, &FB_CANCEL)
 }
 
 fn fastboot_devices() -> Vec<Value> {
@@ -164,7 +165,6 @@ pub fn fastboot_flash(
     let serial = opt_str(&serial).ok_or_else(|| "缺少 serial".to_string())?;
     let partition = opt_str(&partition).ok_or_else(|| "缺少 partition".to_string())?;
     let image = opt_str(&image).ok_or_else(|| "缺少 image".to_string())?;
-    FB_CANCEL.store(false, Ordering::SeqCst);
     let out = fastboot(Some(&serial), &["flash", &partition, &image])?;
     Ok(json!({"ok": true, "output": out}))
 }

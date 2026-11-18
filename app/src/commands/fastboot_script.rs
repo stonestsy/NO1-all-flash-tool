@@ -3,6 +3,7 @@
 use super::util::*;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
 fn opt_str(v: &Option<Value>) -> Option<String> {
     v.as_ref().and_then(|x| x.as_str()).map(|s| s.to_string())
@@ -253,6 +254,11 @@ pub fn fastboot_batch_write(
         Some(Value::Array(a)) => a,
         _ => Vec::new(),
     };
+    super::fastboot::FB_CANCEL.store(false, Ordering::SeqCst);
+    let run = |args: &[&str]| {
+        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        run_tool_cancellable(&exe, &owned, &super::fastboot::FB_CANCEL)
+    };
     let mut failed: Vec<String> = Vec::new();
     let mut done = 0usize;
     for task in &list {
@@ -268,13 +274,14 @@ pub fn fastboot_batch_write(
             .unwrap_or("")
             .to_string();
         let result = match op {
-            "flash" => run_tool_str(&exe, &["-s", &serial, "flash", &name, &image]),
-            "erase" => run_tool_str(&exe, &["-s", &serial, "erase", &name]),
-            "reboot" => run_tool_str(&exe, &["-s", &serial, "reboot"]),
+            "flash" => run(&["-s", &serial, "flash", &name, &image]),
+            "erase" => run(&["-s", &serial, "erase", &name]),
+            "reboot" => run(&["-s", &serial, "reboot"]),
             _ => continue,
         };
         match result {
             Ok(_) => done += 1,
+            Err(e) if super::fastboot::FB_CANCEL.load(Ordering::SeqCst) => return Err(e),
             Err(_) => failed.push(name),
         }
     }

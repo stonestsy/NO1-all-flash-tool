@@ -4,6 +4,7 @@
 use serde_json::{json, Value};
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // ---------- WinHTTP ----------
 
@@ -449,25 +450,112 @@ pub fn resolve_redirect(url: &str, max_hops: usize) -> Result<String, String> {
 use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// 运行外部工具并收集 stdout+stderr（不弹控制台窗口）。
-pub fn run_tool(exe: &Path, args: &[String]) -> Result<String, String> {
-    let out = std::process::Command::new(exe)
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| format!("无法启动 {}: {}", exe.display(), e))?;
-    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
-    let err = String::from_utf8_lossy(&out.stderr);
+fn command_output_text(stdout: &[u8], stderr: &[u8]) -> String {
+    let mut text = String::from_utf8_lossy(stdout).to_string();
+    let err = String::from_utf8_lossy(stderr);
     if !err.trim().is_empty() {
         if !text.is_empty() {
             text.push('\n');
         }
         text.push_str(&err);
     }
+    text
+}
+
+fn command_status_error(exe: &Path, status: std::process::ExitStatus, output: &str) -> String {
+    let code = status
+        .code()
+        .map(|c| format!("退出码 {}", c))
+        .unwrap_or_else(|| "进程被终止".to_string());
+    if output.trim().is_empty() {
+        format!("{} 执行失败（{}）", exe.display(), code)
+    } else {
+        format!("{} 执行失败（{}）: {}", exe.display(), code, output.trim())
+    }
+}
+
+fn run_tool_impl(
+    exe: &Path,
+    args: &[String],
+    cancel: Option<&AtomicBool>,
+) -> Result<String, String> {
+    use std::io::Read;
+
+    if cancel
+        .map(|flag| flag.load(Ordering::SeqCst))
+        .unwrap_or(false)
+    {
+        return Err("操作已取消".to_string());
+    }
+    let mut child = std::process::Command::new(exe)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map_err(|e| format!("无法启动 {}: {}", exe.display(), e))?;
+    let mut stdout = child.stdout.take().expect("stdout 已配置为 piped");
+    let mut stderr = child.stderr.take().expect("stderr 已配置为 piped");
+    let stdout_task = std::thread::spawn(move || {
+        let mut data = Vec::new();
+        stdout.read_to_end(&mut data).map(|_| data)
+    });
+    let stderr_task = std::thread::spawn(move || {
+        let mut data = Vec::new();
+        stderr.read_to_end(&mut data).map(|_| data)
+    });
+
+    let mut cancelled = false;
+    let status_result = loop {
+        if cancel
+            .map(|flag| flag.load(Ordering::SeqCst))
+            .unwrap_or(false)
+        {
+            cancelled = true;
+            let _ = child.kill();
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
+            Err(e) => break Err(e),
+        }
+    };
+    if status_result.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let stdout = stdout_task
+        .join()
+        .map_err(|_| "读取子进程 stdout 失败".to_string())?
+        .map_err(|e| format!("读取子进程 stdout 失败: {}", e))?;
+    let stderr = stderr_task
+        .join()
+        .map_err(|_| "读取子进程 stderr 失败".to_string())?
+        .map_err(|e| format!("读取子进程 stderr 失败: {}", e))?;
+    let status = status_result.map_err(|e| format!("等待子进程退出失败: {}", e))?;
+    let text = command_output_text(&stdout, &stderr);
+    if cancelled {
+        return Err("操作已取消".to_string());
+    }
+    if !status.success() {
+        return Err(command_status_error(exe, status, &text));
+    }
     Ok(text)
+}
+
+/// 运行外部工具并收集 stdout+stderr（不弹控制台窗口）。
+pub fn run_tool(exe: &Path, args: &[String]) -> Result<String, String> {
+    run_tool_impl(exe, args, None)
+}
+
+/// 运行可由指定标志中断的外部工具。
+pub fn run_tool_cancellable(
+    exe: &Path,
+    args: &[String],
+    cancel: &AtomicBool,
+) -> Result<String, String> {
+    run_tool_impl(exe, args, Some(cancel))
 }
 
 pub fn run_tool_str(exe: &Path, args: &[&str]) -> Result<String, String> {
@@ -485,6 +573,10 @@ pub fn run_tool_bytes(exe: &Path, args: &[String]) -> Result<Vec<u8>, String> {
         .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("无法启动 {}: {}", exe.display(), e))?;
+    if !out.status.success() {
+        let text = command_output_text(&out.stdout, &out.stderr);
+        return Err(command_status_error(exe, out.status, &text));
+    }
     if out.stdout.is_empty() {
         let err = String::from_utf8_lossy(&out.stderr);
         if !err.trim().is_empty() {
@@ -495,6 +587,21 @@ pub fn run_tool_bytes(exe: &Path, args: &[String]) -> Result<Vec<u8>, String> {
 }
 
 // ---------- 路径 ----------
+
+/// 分区名会进入设备端 root shell，只允许 Android by-name 常见字符。
+pub fn validate_partition_name(name: &str) -> Result<(), String> {
+    let valid = !name.is_empty()
+        && name.len() <= 128
+        && !matches!(name, "." | "..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
+    if valid {
+        Ok(())
+    } else {
+        Err(format!("无效的分区名: {:?}", name))
+    }
+}
 
 pub fn pack_dir() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
@@ -970,4 +1077,66 @@ pub fn browse_files(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cmd_exe() -> PathBuf {
+        PathBuf::from(r"C:\Windows\System32\cmd.exe")
+    }
+
+    #[test]
+    fn nonzero_exit_status_is_an_error() {
+        let args = vec!["/C".to_string(), "exit 7".to_string()];
+        let text_error = run_tool(&cmd_exe(), &args).unwrap_err();
+        assert!(text_error.contains("退出码 7"), "{}", text_error);
+
+        let bytes_error = run_tool_bytes(&cmd_exe(), &args).unwrap_err();
+        assert!(bytes_error.contains("退出码 7"), "{}", bytes_error);
+    }
+
+    #[test]
+    fn cancellable_tool_stops_a_running_process() {
+        let powershell =
+            PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+        let args = vec![
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-Command".to_string(),
+            "Start-Sleep -Seconds 30".to_string(),
+        ];
+        let cancel = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| run_tool_cancellable(&powershell, &args, &cancel));
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            cancel.store(true, Ordering::SeqCst);
+            let error = worker.join().expect("工作线程 panic").unwrap_err();
+            assert_eq!(error, "操作已取消");
+        });
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    }
+
+    #[test]
+    fn partition_name_validation_rejects_shell_syntax() {
+        for name in ["boot", "boot_a", "vendor_b", "xbl-config", "modem.1"] {
+            assert!(validate_partition_name(name).is_ok(), "{}", name);
+        }
+        for name in [
+            "",
+            ".",
+            "..",
+            "boot/a",
+            "boot a",
+            "boot;id",
+            "boot$(id)",
+            "boot`id`",
+            "boot\nid",
+            "分区",
+        ] {
+            assert!(validate_partition_name(name).is_err(), "{:?}", name);
+        }
+    }
 }

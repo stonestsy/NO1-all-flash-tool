@@ -84,6 +84,9 @@ pub fn lib_backup_start(payload: Option<Value>) -> Result<Value, String> {
                 .collect()
         }
     };
+    for name in &names {
+        validate_partition_name(name)?;
+    }
     let mut failed: Vec<String> = Vec::new();
     let mut saved = 0usize;
     for name in &names {

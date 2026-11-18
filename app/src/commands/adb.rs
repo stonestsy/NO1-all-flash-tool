@@ -223,6 +223,9 @@ pub fn adb_erase_partitions(
     let serial = opt_str(&serial).ok_or_else(|| "缺少 serial".to_string())?;
     require_root(&serial)?;
     let names = partition_names(&partitions);
+    for name in &names {
+        validate_partition_name(name)?;
+    }
     let mut failed: Vec<String> = Vec::new();
     for name in &names {
         let path = format!("{}/{}", BY_NAME, name);
@@ -250,6 +253,9 @@ pub fn adb_readback_partitions(
         opt_str(&save_dir).unwrap_or_else(|| data_dir("readback").to_string_lossy().to_string());
     require_root(&serial)?;
     let names = partition_names(&partitions);
+    for name in &names {
+        validate_partition_name(name)?;
+    }
     std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
     let mut failed: Vec<String> = Vec::new();
     let mut saved: Vec<String> = Vec::new();
@@ -279,6 +285,16 @@ pub fn adb_write_partitions(items: Option<Value>, serial: Option<Value>) -> Resu
         Some(Value::Array(a)) => a,
         _ => Vec::new(),
     };
+    for item in &list {
+        let name = item
+            .get("name")
+            .or_else(|| item.get("partition"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if !name.is_empty() {
+            validate_partition_name(name)?;
+        }
+    }
     let mut failed: Vec<String> = Vec::new();
     for item in &list {
         let name = item
@@ -326,6 +342,9 @@ fn backup_all(save_dir: Option<Value>, serial: Option<Value>, sub: &str) -> Resu
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
+    for name in &names {
+        validate_partition_name(name)?;
+    }
     std::fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
     let mut failed: Vec<String> = Vec::new();
     let mut count = 0;
